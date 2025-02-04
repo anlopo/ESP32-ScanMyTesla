@@ -13,7 +13,7 @@ GENERAL PUBLIC LICENSE
 #define RX_PIN 16
 #define TX_PIN 17
 
-//#define DEBUG                  //serial debug output
+#define DEBUG                  //serial debug output
 
 uint8_t messageCounter = 0;    //should not be greater than BUFFER_LENGTH
 
@@ -94,7 +94,7 @@ void setup() {
 #ifdef DEBUG
     delay(1000);
     Serial.begin(250000);
-    debug_println("ESP_SMT init");
+    debug_println("\nESP_SMT init");
 #endif
     SerialBT.begin("ESP-SMT");
 
@@ -201,9 +201,9 @@ String processSmtCommands(char *smtCmd){
 
     //wait for at-commands (ELM327) or st-commands (ST1110)
     if (strncmp(smtCmd, "at", 2) && strncmp(smtCmd, "st", 2)){
-        returnToSmt.concat(lineEnd); //we are not allowed to send "NULL" to BT, send at least "CR"
+        //returnToSmt.concat(lineEnd); //we are not allowed to send "NULL" to BT, send at least "CR"
         debug_println("Unknown request");
-        //returnToSmt.concat("OK"); //sent something, but not "null"
+        returnToSmt.concat("OK\n>\n"); //sent something, but not "null"
         return returnToSmt;  
     }
 
@@ -241,7 +241,7 @@ String processSmtCommands(char *smtCmd){
     		debug_println(filter);  
     
     		ids[filter] = true;
-    		returnToSmt.concat("OK");
+    		returnToSmt.concat("OK\n");
     //clear filters
 	  }else if(!strncmp(smtCmd, "stfcp", 5)){
 
@@ -250,12 +250,12 @@ String processSmtCommands(char *smtCmd){
     		memset(ids, true, sizeof(ids)); //clear all filters = allow all IDs.
     		noFilter = true; //no filtes at all
         debug_println("No IDs are allowed now");
-    		returnToSmt.concat("OK");
+    		returnToSmt.concat("OK\n");
 	  }else{
 		//all other at*/st* commands, we don't care about, send "OK"...
-		    returnToSmt.concat("OK");
+		    returnToSmt.concat("OK\n");
 	  }
-	  returnToSmt.concat(">");
+	  returnToSmt.concat(">\n");
     
     return returnToSmt;  
 }
@@ -264,8 +264,8 @@ String processSmtCommands(char *smtCmd){
 void processBtMessage(){
     String responseToBt = processSmtCommands(buffer);
 
-    //debug_println("BT out message: ");
-    //debug_println(responseToBt);
+    debug_println("BT out message: ");
+    debug_println(responseToBt);
 
     SerialBT.print(responseToBt); //send String to BT
 }
