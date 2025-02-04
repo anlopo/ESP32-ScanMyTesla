@@ -12,7 +12,7 @@ GENERAL PUBLIC LICENSE
 #define RX_PIN 16
 #define TX_PIN 17
 
-#define DEBUG  //serial debug output
+//#define DEBUG  //serial debug output
 
 uint8_t messageCounter = 0;  //should not be greater than BUFFER_LENGTH
 
@@ -55,12 +55,12 @@ void processCanMessage(twai_message_t &canMessage) {
   //printFrame(canMessage);
 
   //if the can message id is in the list process it
-  //if(!ids[canMessage.identifier]){
-  //    return;
-  //}
-  if (canDataBufferId[canMessage.identifier % BUFFER_LENGTH] == canMessage.identifier && canDataBufferData[canMessage.identifier % BUFFER_LENGTH][0] == canMessage.data[0]) {
-    return;
+  if(!ids[canMessage.identifier]){
+      return;
   }
+  //if (canDataBufferId[canMessage.identifier % BUFFER_LENGTH] == canMessage.identifier && canDataBufferData[canMessage.identifier % BUFFER_LENGTH][0] == canMessage.data[0]) {
+  //  return;
+  //}
 
   //print can message after filter
   //printFrame(canMessage);
@@ -181,7 +181,7 @@ void canLoop() {
   if (alerts_triggered & TWAI_ALERT_RX_DATA) {
     // One or more messages received. Handle all.
     twai_message_t message;
-    while (twai_receive(&message, 5) == ESP_OK) {
+    while (twai_receive(&message, 0) == ESP_OK) {
       processCanMessage(message);
     }
   }
