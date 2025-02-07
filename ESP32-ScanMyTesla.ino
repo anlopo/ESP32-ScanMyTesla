@@ -197,14 +197,6 @@ String processSmtCommands(char *smtCmd) {
   debug_print("smtCmd: ");
   debug_println(smtCmd);
 
-  //wait for at-commands (ELM327) or st-commands (ST1110)
-  if (strncmp(smtCmd, "at", 2) && strncmp(smtCmd, "st", 2)) {
-    //returnToSmt.concat(lineEnd); //we are not allowed to send "NULL" to BT, send at least "CR"
-    debug_println("Unknown request");
-    returnToSmt.concat("OK\n>\n");  //sent something, but not "null"
-    return returnToSmt;
-  }
-
   //data polling
   if (!strncmp(smtCmd, "atma", 4) || !strncmp(smtCmd, "stm", 3)) {
     //create response string here
