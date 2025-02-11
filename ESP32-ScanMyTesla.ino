@@ -7,12 +7,12 @@ GENERAL PUBLIC LICENSE
 #include "driver/twai.h"
 #include <BluetoothSerial.h>
 
-#define BUFFER_LENGTH 16 // play with this size to get better packets/second
+#define BUFFER_LENGTH 16 // Play with this size to get better packets/second
 
 #define RX_PIN 16
 #define TX_PIN 17
 
-// #define DEBUG  //serial debug output
+//#define DEBUG  // Serial debug output
 
 uint8_t messageCounter = 0; // should not be greater than BUFFER_LENGTH
 
@@ -52,21 +52,21 @@ void processCanMessage(twai_message_t &canMessage)
 {
   uint8_t length = canMessage.data_length_code;
 
-  // Ak ID nie je v zozname, hneď ukonči
+  // If the ID is not in the list, exit immediately.
   if (!ids[canMessage.identifier])
     return;
 
-  // Overenie správnej dĺžky
+  // Verifying the correct length
   if (length == 0 || length > 8)
   {
     debug_println("Message dropped, wrong length");
     return;
   }
 
-  // Použitie modulo na optimalizované indexovanie buffera
+  // Using modulo for optimized buffer indexing
   uint8_t lineNumber = canMessage.identifier % BUFFER_LENGTH;
 
-  // Skontroluj duplicitu na rovnakom indexe
+  // Check for duplicates on the same index
   if (canDataBufferId[lineNumber] == canMessage.identifier && canDataBufferData[lineNumber][0] == canMessage.data[0])
   {
     debug_print("ID ");
@@ -75,12 +75,12 @@ void processCanMessage(twai_message_t &canMessage)
     return;
   }
 
-  // Uloženie dát do buffera
+  // Saving data to the buffer
   canDataBufferId[lineNumber] = canMessage.identifier;
   canDataBufferLength[lineNumber] = length;
   memcpy(canDataBufferData[lineNumber], canMessage.data, length);
 
-  // Posun indexu správy
+  // Message index shift
   messageCounter = (messageCounter + 1) % BUFFER_LENGTH;
 }
 
@@ -153,8 +153,8 @@ void setup()
 
   SerialBT.begin("ESP-SMT");
 
-  noFilter = false; // there are some filters
-  // set true for all IDs, because no filters applied yet
+  noFilter = false; // There are some filters
+  // Set true for all IDs, because no filters applied yet
   memset(ids, true, sizeof(ids));
   memset(canDataBufferId, 0, sizeof(canDataBufferId) / sizeof(canDataBufferId[0]));
   memset(canDataBufferLength, 0, sizeof(canDataBufferLength) / sizeof(canDataBufferLength[0]));
@@ -165,14 +165,14 @@ void canLoop()
 {
   uint32_t alerts_triggered;
   if (twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(1)) != ESP_OK)
-    return; // Ak nie sú alerty, ukonči
+    return; // If there are no alerts, quit
 
   twai_status_info_t twaistatus;
 
-  // Spracovanie alertov
+  // Alert processing
   if (alerts_triggered)
   {
-    twai_get_status_info(&twaistatus); // Načítaj status len raz, ak sú nejaké alerty
+    twai_get_status_info(&twaistatus); // Load status only once if there are any alerts
 
     if (alerts_triggered & TWAI_ALERT_ERR_PASS)
     {
@@ -189,7 +189,7 @@ void canLoop()
     }
   }
 
-  // Spracovanie prijatých CAN správ
+  // Processing received CAN messages
   if (alerts_triggered & TWAI_ALERT_RX_DATA)
   {
     twai_message_t message;
@@ -202,7 +202,7 @@ void canLoop()
 
 void processSmtCommands(char *smtCmd, char *returnToSmt)
 {
-  returnToSmt[0] = '\0'; // Vyprázdni buffer pred použitím
+  returnToSmt[0] = '\0'; // Empty buffer before use
 
   debug_print("smtCmd: ");
   debug_println(smtCmd);
@@ -225,18 +225,18 @@ void processSmtCommands(char *smtCmd, char *returnToSmt)
         strcat(returnToSmt, tempBuffer);
       }
 
-      canDataBufferId[i] = 0; // Nastavenie ID na nulu pre ignorovanie pri ďalšom cykle
+      canDataBufferId[i] = 0; // Setting ID to zero to ignore on next cycle
       strcat(returnToSmt, "\n");
     }
   }
   // Nastavenie filtrov
   else if (!strncmp(smtCmd, "stfap ", 6))
   {
-    uint16_t filter = strtol(smtCmd + 6, NULL, 16); // Priamy HEX parsing
+    uint16_t filter = strtol(smtCmd + 6, NULL, 16); // Direct HEX parsing
 
     if (noFilter)
     {
-      memset(ids, false, sizeof(ids)); // Zrušenie všetkých filtrov a povolenie iba jedného
+      memset(ids, false, sizeof(ids)); // Remove filters and set only one
       noFilter = false;
     }
 
@@ -246,27 +246,27 @@ void processSmtCommands(char *smtCmd, char *returnToSmt)
     ids[filter] = true;
     strcat(returnToSmt, "OK\n");
   }
-  // Vymazanie filtrov
+  // Remove filters
   else if (!strncmp(smtCmd, "stfcp", 5))
   {
-    memset(ids, true, sizeof(ids)); // Povolenie všetkých ID
+    memset(ids, true, sizeof(ids)); // Allow all IDs
     noFilter = true;
 
     debug_println("Clear all filters = allow all IDs!");
     strcat(returnToSmt, "OK\n");
   }
-  // Všetky ostatné príkazy
+  // All others commands
   else
   {
     strcat(returnToSmt, "OK\n");
   }
 
-  strcat(returnToSmt, ">\n"); // Indikátor ukončenia
+  strcat(returnToSmt, ">\n"); // Indicate "waiting for command"
 }
 
 void processBtMessage()
 {
-  char responseToBt[512]; // Buffer na odpoveď
+  char responseToBt[512]; // Buffer for response
   processSmtCommands(buffer, responseToBt);
 
   debug_println("BT out message: ");
@@ -281,16 +281,16 @@ void btLoop()
   {
     char tmp = SerialBT.read();
 
-    // Ak je to "Carriage Return" alebo buffer pretečie, spracuj správu
+    // If "Carriage Return" or buffer is full, process message
     if (tmp == 13 || btBufferCounter >= 126)
     {
-      buffer[btBufferCounter] = '\0'; // Ukonči string
-      btBufferCounter = 0;            // Reset bufferu
+      buffer[btBufferCounter] = '\0'; // Null terminate string
+      btBufferCounter = 0;            // Buffer reset
       processBtMessage();
       continue;
     }
 
-    // Ignoruj "New Line" (10) a "Space" (32)
+    // Ignore "New Line" (10) and "Space" (32)
     if (tmp != 10 && tmp != 32)
     {
       buffer[btBufferCounter++] = tolower(tmp);
