@@ -1,0 +1,2 @@
+compiler.optimization_flags=-O2
+compiler.optimization_flags.release=-O2
