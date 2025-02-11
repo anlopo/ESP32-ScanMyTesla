@@ -273,7 +273,7 @@ void processSmtCommands(char *smtCmd, char *returnToSmt)
 
 void processBtMessage()
 {
-  char responseToBt[512]; // Buffer for response
+  char responseToBt[332]; // Buffer for response
   processSmtCommands(buffer, responseToBt);
 
   debug_println("BT out message: ");
