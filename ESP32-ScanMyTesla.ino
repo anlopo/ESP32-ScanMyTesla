@@ -25,8 +25,6 @@ bool noFilter = true;
 char btBufferCounter = 0;
 char buffer[128];
 
-static bool driver_installed = false;
-
 BluetoothSerial SerialBT;
 
 #ifdef DEBUG
@@ -80,25 +78,18 @@ void processCanMessage(twai_message_t &canMessage) {
   messageCounter = (messageCounter + 1) % BUFFER_LENGTH;
 }
 
-void setup() {
-#ifdef DEBUG
-  delay(1000);
-  Serial.begin(250000);
-  debug_println("\nESP_SMT init");
-#endif
-  SerialBT.begin("ESP-SMT");
-
+bool canInit() {
   //Initialize configuration structures using macro initializers
   //twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)TX_PIN, (gpio_num_t)RX_PIN, TWAI_MODE_LISTEN_ONLY);
   twai_general_config_t g_config = { .mode = TWAI_MODE_LISTEN_ONLY,
-                                     .tx_io = (gpio_num_t)TX_PIN,
-                                     .rx_io = (gpio_num_t)RX_PIN,
-                                     .clkout_io = TWAI_IO_UNUSED,
-                                     .bus_off_io = TWAI_IO_UNUSED,
-                                     .tx_queue_len = 1,
-                                     .rx_queue_len = 127,
-                                     .alerts_enabled = TWAI_ALERT_ALL,
-                                     .clkout_divider = 0 };
+    .tx_io = (gpio_num_t)TX_PIN,
+    .rx_io = (gpio_num_t)RX_PIN,
+    .clkout_io = TWAI_IO_UNUSED,
+    .bus_off_io = TWAI_IO_UNUSED,
+    .tx_queue_len = 1,
+    .rx_queue_len = 127,
+    .alerts_enabled = TWAI_ALERT_ALL,
+    .clkout_divider = 0 };
   twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
   twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
@@ -107,7 +98,7 @@ void setup() {
     debug_println("Driver installed");
   } else {
     debug_println("Failed to install driver");
-    return;
+    return false;
   }
 
   //Start TWAI driver
@@ -115,7 +106,7 @@ void setup() {
     debug_println("Driver started");
   } else {
     debug_println("Failed to start driver");
-    return;
+    return false;
   }
 
   //Reconfigure alerts to detect frame receive, Bus-Off error and RX queue full states
@@ -124,11 +115,26 @@ void setup() {
     debug_println("CAN Alerts reconfigured");
   } else {
     debug_println("Failed to reconfigure alerts");
-    return;
+    return false;
   }
 
-  //TWAI driver is now successfully installed and started
-  driver_installed = true;
+  return true;
+}
+
+void setup() {
+#ifdef DEBUG
+  delay(1000);
+  Serial.begin(250000);
+  debug_println("\nESP_SMT init");
+#endif
+
+  while (!canInit())
+  {
+    debug_println("Retrying in 1s");
+    delay(1000);
+  }
+
+  SerialBT.begin("ESP-SMT");
 
   noFilter = false;  //there are some filters
   //set true for all IDs, because no filters applied yet
@@ -139,8 +145,6 @@ void setup() {
 }
 
 void canLoop() {
-  if (!driver_installed) return;  // Ak driver nie je nainštalovaný, okamžite ukonči
-
   uint32_t alerts_triggered;
   if (twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(1)) != ESP_OK) return;  // Ak nie sú alerty, ukonči
 
