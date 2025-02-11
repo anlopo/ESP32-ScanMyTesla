@@ -243,8 +243,15 @@ void processSmtCommands(char *smtCmd, char *returnToSmt)
     debug_print("New filter from SMT: ");
     debug_println(filter);
 
-    ids[filter] = true;
-    strcat(returnToSmt, "OK\n");
+    if (filter < 2048)
+    {
+      ids[filter] = true;
+      strcat(returnToSmt, "OK\n");
+    }
+    else
+    {
+      strcat(returnToSmt, "ERR: Invalid ID\n");
+    }
   }
   // Remove filters
   else if (!strncmp(smtCmd, "stfcp", 5))
@@ -282,7 +289,7 @@ void btLoop()
     char tmp = SerialBT.read();
 
     // If "Carriage Return" or buffer is full, process message
-    if (tmp == 13 || btBufferCounter >= 126)
+    if (tmp == 13 || btBufferCounter >= sizeof(buffer) - 2)
     {
       buffer[btBufferCounter] = '\0'; // Null terminate string
       btBufferCounter = 0;            // Buffer reset
