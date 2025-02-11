@@ -38,56 +38,46 @@ void printFrame(twai_message_t &canMessage) {
   Serial.println();
 }
 
-#define debug_println(msg) Serial.println(msg);
-#define debug_print(msg) Serial.print(msg);
-
+#define debug_println(...) Serial.println(__VA_ARGS__)
+#define debug_print(...) Serial.print(__VA_ARGS__)
+#define debug_printf(...) Serial.printf(__VA_ARGS__)
 #else
-#define printFrame(canMessage) do {} while (0)
-#define debug_println(msg) do {} while (0)
-#define debug_print(msg) do {} while (0)
+#define printFrame(...)
+#define debug_println(...)
+#define debug_print(...)
+#define debug_printf(...)
 #endif
 
 void processCanMessage(twai_message_t &canMessage) {
   uint8_t length = canMessage.data_length_code;
-  uint8_t lineNumber = messageCounter;
+  
+  // Ak ID nie je v zozname, hneď ukonči
+  if (!ids[canMessage.identifier]) return;
 
-  //print can message before filter
-  //printFrame(canMessage);
-
-  //if the can message id is in the list process it
-  if(!ids[canMessage.identifier]){
-      return;
-  }
-  //if (canDataBufferId[canMessage.identifier % BUFFER_LENGTH] == canMessage.identifier && canDataBufferData[canMessage.identifier % BUFFER_LENGTH][0] == canMessage.data[0]) {
-  //  return;
-  //}
-
-  //print can message after filter
-  //printFrame(canMessage);
-
-  //check if this ID is already in the buffer !!!
-  //doesn't work with mutiplexed messages, like cell voltages -> check first byte also (it's mostly multiplex index)
-  for (uint8_t i = 0; i < BUFFER_LENGTH; i++) {
-    if (canDataBufferId[i] == canMessage.identifier && canDataBufferData[lineNumber][0] == canMessage.data[0]) {
-      debug_print("ID ");
-      debug_print(canMessage.identifier);
-      debug_println(" allready in buffer");
-      lineNumber = i;
-    }
-  }
-
-  //messages can be 1..8 bytes long only, if not drop this message (propably corrupt)
-  if (0 < length && length < 9) {
-    canDataBufferId[lineNumber] = canMessage.identifier;
-    canDataBufferLength[lineNumber] = length;
-    for (uint8_t i = 0; i < length; i++) {
-      canDataBufferData[lineNumber][i] = canMessage.data[i];
-    }
-    messageCounter++;
-    if (messageCounter >= BUFFER_LENGTH) messageCounter = 0;
-  } else {
+  // Overenie správnej dĺžky
+  if (length == 0 || length > 8) {
     debug_println("Message dropped, wrong length");
+    return;
   }
+
+  // Použitie modulo na optimalizované indexovanie buffera
+  uint8_t lineNumber = canMessage.identifier % BUFFER_LENGTH;
+
+  // Skontroluj duplicitu na rovnakom indexe
+  if (canDataBufferId[lineNumber] == canMessage.identifier && canDataBufferData[lineNumber][0] == canMessage.data[0]) {
+    debug_print("ID ");
+    debug_print(canMessage.identifier);
+    debug_println(" already in buffer");
+    return;
+  }
+
+  // Uloženie dát do buffera
+  canDataBufferId[lineNumber] = canMessage.identifier;
+  canDataBufferLength[lineNumber] = length;
+  memcpy(canDataBufferData[lineNumber], canMessage.data, length);
+
+  // Posun indexu správy
+  messageCounter = (messageCounter + 1) % BUFFER_LENGTH;
 }
 
 void setup() {
@@ -149,37 +139,31 @@ void setup() {
 }
 
 void canLoop() {
-  if (!driver_installed) {
-    // Driver not installed
-    delay(1000);
-    return;
-  }
-  // Check if alert happened
-  uint32_t alerts_triggered;
-  twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(1));
-  twai_status_info_t twaistatus;
-  twai_get_status_info(&twaistatus);
+  if (!driver_installed) return;  // Ak driver nie je nainštalovaný, okamžite ukonči
 
-  // Handle alerts
-  if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
-    debug_println("Alert: TWAI controller has become error passive.");
+  uint32_t alerts_triggered;
+  if (twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(1)) != ESP_OK) return;  // Ak nie sú alerty, ukonči
+
+  twai_status_info_t twaistatus;
+  
+  // Spracovanie alertov
+  if (alerts_triggered) {
+    twai_get_status_info(&twaistatus);  // Načítaj status len raz, ak sú nejaké alerty
+
+    if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
+      debug_println("Alert: TWAI controller is error passive.");
+    }
+    if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
+      debug_printf("Alert: Bus error occurred. Count: %d\n", twaistatus.bus_error_count);
+    }
+    if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
+      debug_printf("Alert: RX queue full! Buffered: %d, Missed: %d, Overrun: %d\n", 
+                   twaistatus.msgs_to_rx, twaistatus.rx_missed_count, twaistatus.rx_overrun_count);
+    }
   }
-  if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
-    debug_println("Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the bus.");
-    debug_print("Bus error count: ");
-    debug_println(twaistatus.bus_error_count);
-  }
-  if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
-    debug_println("Alert: The RX queue is full causing a received frame to be lost.");
-    debug_print("RX buffered: ");
-    debug_println(twaistatus.msgs_to_rx);
-    debug_print("RX missed: ");
-    debug_println(twaistatus.rx_missed_count);
-    debug_print("RX overrun ");
-    debug_println(twaistatus.rx_overrun_count);
-  }
+
+  // Spracovanie prijatých CAN správ
   if (alerts_triggered & TWAI_ALERT_RX_DATA) {
-    // One or more messages received. Handle all.
     twai_message_t message;
     while (twai_receive(&message, 0) == ESP_OK) {
       processCanMessage(message);
@@ -187,92 +171,86 @@ void canLoop() {
   }
 }
 
-String processSmtCommands(char *smtCmd) {
-  //a lot of string manipulation to cut filter ID from SMT message. Any better ideas?
-  String cmd = String(smtCmd);
-  String returnToSmt = String();
-  String sFilter = String();
-  uint16_t filter = 0;
+void processSmtCommands(char *smtCmd, char *returnToSmt) {
+  returnToSmt[0] = '\0';  // Vyprázdni buffer pred použitím
 
   debug_print("smtCmd: ");
   debug_println(smtCmd);
 
-  //data polling
+  // Data polling
   if (!strncmp(smtCmd, "atma", 4) || !strncmp(smtCmd, "stm", 3)) {
-    //create response string here
     for (uint8_t i = 0; i < BUFFER_LENGTH; i++) {
-      //only IDs >0 are allowed, important at initialisation
       if (canDataBufferId[i] == 0) continue;
-      //all message IDs should be 3 digits long
-      if (canDataBufferId[i] < 256) returnToSmt.concat("0");  //make id 3 hex digits long
-      if (canDataBufferId[i] < 16) returnToSmt.concat("0");   //make id 2 hex digits long
-      returnToSmt.concat(String(canDataBufferId[i], HEX));
+
+      char tempBuffer[32];
+      snprintf(tempBuffer, sizeof(tempBuffer), "%03X", canDataBufferId[i]);
+      strcat(returnToSmt, tempBuffer);
 
       for (uint8_t l = 0; l < canDataBufferLength[i]; l++) {
-        //all data bytes should be 2 digits long
-        if (canDataBufferData[i][l] < 16) returnToSmt.concat("0");  //make data 2 digits long
-        returnToSmt.concat(String(canDataBufferData[i][l], HEX));
+        snprintf(tempBuffer, sizeof(tempBuffer), "%02X", canDataBufferData[i][l]);
+        strcat(returnToSmt, tempBuffer);
       }
-      canDataBufferId[i] = 0;  //set ID to zero to ignore it on next run
-      returnToSmt.concat("\n");
-    }
-    //set filters
-  } else if (!strncmp(smtCmd, "stfap ", 6)) {  //e.g. "stfap 3d2,7ff", we need 3d2, first character 6 and 3 length: 3d2
 
-    sFilter = cmd.substring(9, 6);        //why 9,6?!? it should be 6,3!!
-    const char *chCmd = sFilter.c_str();  //HEX string (3d2)
-    filter = strtol(chCmd, 0, 16);        //convert HEX string to integer (978)
+      canDataBufferId[i] = 0;  // Nastavenie ID na nulu pre ignorovanie pri ďalšom cykle
+      strcat(returnToSmt, "\n");
+    }
+  }
+  // Nastavenie filtrov
+  else if (!strncmp(smtCmd, "stfap ", 6)) {
+    uint16_t filter = strtol(smtCmd + 6, NULL, 16);  // Priamy HEX parsing
+
     if (noFilter) {
-      memset(ids, false, sizeof(ids));  //if there no filters, all IDs are allowed. But we need only one => disallow all and allow one
-      noFilter = false;                 //no filtes at all
+      memset(ids, false, sizeof(ids));  // Zrušenie všetkých filtrov a povolenie iba jedného
+      noFilter = false;
     }
 
     debug_print("New filter from SMT: ");
     debug_println(filter);
 
     ids[filter] = true;
-    returnToSmt.concat("OK\n");
-    //clear filters
-  } else if (!strncmp(smtCmd, "stfcp", 5)) {
+    strcat(returnToSmt, "OK\n");
+  }
+  // Vymazanie filtrov
+  else if (!strncmp(smtCmd, "stfcp", 5)) {
+    memset(ids, true, sizeof(ids));  // Povolenie všetkých ID
+    noFilter = true;
 
     debug_println("Clear all filters = allow all IDs!");
-
-    memset(ids, true, sizeof(ids));  //clear all filters = allow all IDs.
-    noFilter = true;                 //no filtes at all
-    debug_println("No IDs are allowed now");
-    returnToSmt.concat("OK\n");
-  } else {
-    //all other at*/st* commands, we don't care about, send "OK"...
-    returnToSmt.concat("OK\n");
+    strcat(returnToSmt, "OK\n");
   }
-  returnToSmt.concat(">\n");
+  // Všetky ostatné príkazy
+  else {
+    strcat(returnToSmt, "OK\n");
+  }
 
-  return returnToSmt;
+  strcat(returnToSmt, ">\n");  // Indikátor ukončenia
 }
 
 void processBtMessage() {
-  String responseToBt = processSmtCommands(buffer);
+  char responseToBt[512];  // Buffer na odpoveď
+  processSmtCommands(buffer, responseToBt);
 
   debug_println("BT out message: ");
   debug_println(responseToBt);
 
-  SerialBT.print(responseToBt);  //send String to BT
+  SerialBT.print(responseToBt);
 }
 
 void btLoop() {
-  uint8_t tmp;
   while (SerialBT.available()) {
-    tmp = SerialBT.read();
-    //check if current char is "Carriage Return"
-    if (tmp == 13 || btBufferCounter > 126) {
-      buffer[btBufferCounter] = 0;  //terminate the string by null
-      btBufferCounter = 0;          // reset buffer counter, buffer is empty
+    char tmp = SerialBT.read();
+
+    // Ak je to "Carriage Return" alebo buffer pretečie, spracuj správu
+    if (tmp == 13 || btBufferCounter >= 126) {
+      buffer[btBufferCounter] = '\0';  // Ukonči string
+      btBufferCounter = 0;             // Reset bufferu
       processBtMessage();
-    } else {
-      //check if current char is "new line" or "space", if so, ignore it :)
-      if (tmp != 10 || tmp != 32) {
-        buffer[btBufferCounter++] = (char)tolower(tmp);  //use lowercase only
-      }
+      continue;
+    }
+
+    // Ignoruj "New Line" (10) a "Space" (32)
+    if (tmp != 10 && tmp != 32) {
+      buffer[btBufferCounter++] = tolower(tmp);
     }
   }
 }
